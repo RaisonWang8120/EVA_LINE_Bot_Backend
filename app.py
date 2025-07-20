@@ -6,8 +6,10 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 
+# 導入 Gemini 相關模組
 import google.generativeai as genai
 
+# 從 .env 文件載入環境變數
 load_dotenv()
 
 app = Flask(__name__)
@@ -26,26 +28,22 @@ if not GEMINI_API_KEY:
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
+# 配置 Gemini API 金鑰
 genai.configure(api_key=GEMINI_API_KEY)
+
+# 初始化 Gemini 模型
+# 既然日誌顯示 'gemini-pro' 可用，我們就直接用它
+model = genai.GenerativeModel('gemini-pro')
 
 def get_ai_response(user_message):
     """根據用戶訊息生成 AI 回覆 (使用 Gemini API)"""
     try:
-        # 嘗試列出可用的模型，以確認 API 連接和金鑰有效性
-        print("嘗試列出 Gemini 可用模型...")
-        available_models = [m.name for m in genai.list_models()]
-        print(f"可用的 Gemini 模型: {available_models}")
-
-        # 如果 'gemini-pro' 在列表中，則嘗試使用它
-        if 'gemini-pro' in available_models:
-            model = genai.GenerativeModel('gemini-pro')
-            response = model.generate_content(user_message)
-            return response.text
-        else:
-            return "對不起，Gemini Pro 模型目前不可用，請稍後再試或聯繫管理員。"
+        # 直接使用 Gemini 模型生成內容
+        response = model.generate_content(user_message)
+        return response.text # Gemini 回覆的內容在 .text 屬性中
     except Exception as e:
-        print(f"Gemini API error during model listing or content generation: {e}")
-        return "對不起，AI服務連接失敗，請稍後再試。"
+        print(f"Gemini API error during content generation: {e}")
+        return "對不起，目前AI服務無法回應您的請求，請稍後再試。"
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -62,7 +60,10 @@ def callback():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_message = event.message.text
+    
+    # 呼叫 AI 模型獲取回覆
     ai_response = get_ai_response(user_message)
+
     line_bot_api.reply_message(
         event.reply_token,
         TextSendMessage(text=ai_response)
