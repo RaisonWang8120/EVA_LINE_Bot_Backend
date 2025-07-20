@@ -6,10 +6,9 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 
-# 導入 Gemini 相關模組
 import google.generativeai as genai
+import traceback # 導入 traceback 模組
 
-# 從 .env 文件載入環境變數
 load_dotenv()
 
 app = Flask(__name__)
@@ -28,21 +27,26 @@ if not GEMINI_API_KEY:
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# 配置 Gemini API 金鑰
 genai.configure(api_key=GEMINI_API_KEY)
 
-# 初始化 Gemini 模型
-# 既然日誌顯示 'gemini-pro' 可用，我們就直接用它
 model = genai.GenerativeModel('gemini-pro')
 
 def get_ai_response(user_message):
     """根據用戶訊息生成 AI 回覆 (使用 Gemini API)"""
+    if not user_message or user_message.strip() == "":
+        return "您好！請輸入一些內容，我才能為您服務喔。"
+
     try:
-        # 直接使用 Gemini 模型生成內容
+        # 使用 Gemini 模型生成內容
+        # 這裡可以加入一些安全設置，例如降低敏感度 (如果需要)
+        # 詳情請參考 Gemini API 文件
+        # response = model.generate_content(user_message, safety_settings={'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_NONE'})
         response = model.generate_content(user_message)
-        return response.text # Gemini 回覆的內容在 .text 屬性中
+        return response.text 
     except Exception as e:
+        # 打印完整的錯誤堆疊追蹤，以便我們更精確地診斷問題
         print(f"Gemini API error during content generation: {e}")
+        traceback.print_exc() # 打印堆疊追蹤
         return "對不起，目前AI服務無法回應您的請求，請稍後再試。"
 
 @app.route("/callback", methods=['POST'])
@@ -61,7 +65,6 @@ def callback():
 def handle_message(event):
     user_message = event.message.text
     
-    # 呼叫 AI 模型獲取回覆
     ai_response = get_ai_response(user_message)
 
     line_bot_api.reply_message(
