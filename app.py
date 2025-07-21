@@ -33,6 +33,7 @@ genai.configure(api_key=GEMINI_API_KEY)
 
 model = genai.GenerativeModel('gemini-1.5-flash') 
 
+init_db()
 # === 新增：初始化資料庫函數 ===
 # 這個函數會在 Bot 啟動時執行，確保我們有一個儲存記帳數據的資料庫表
 def init_db():
@@ -116,9 +117,9 @@ def handle_message(event):
         event.reply_token,
         TextSendMessage(text=ai_response)
     )
-
+ 
 # === 應用程式啟動入口 (新增資料庫初始化) ===
 if __name__ == "__main__":
-    init_db() # 在應用程式啟動時呼叫資料庫初始化
+    # 在應用程式啟動時呼叫資料庫初始化
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
