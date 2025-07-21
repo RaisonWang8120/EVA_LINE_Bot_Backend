@@ -8,6 +8,8 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage
 
 import google.generativeai as genai
 import traceback 
+import re # 導入正則表達式模組，用於文字匹配
+import sqlite3 # 導入 SQLite 模組，用於資料庫操作
 
 load_dotenv()
 
@@ -29,14 +31,64 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 genai.configure(api_key=GEMINI_API_KEY)
 
-# *** 關鍵修改：將模型從 'gemini-pro' 更改為 'gemini-1.5-flash' ***
 model = genai.GenerativeModel('gemini-1.5-flash') 
 
+# === 新增：初始化資料庫函數 ===
+# 這個函數會在 Bot 啟動時執行，確保我們有一個儲存記帳數據的資料庫表
+def init_db():
+    try:
+        # 連接到資料庫文件。如果文件不存在，SQLite 會自動創建它。
+        conn = sqlite3.connect('expenses.db') 
+        cursor = conn.cursor()
+        # 創建 expenses 表。如果表已經存在，就不會重複創建。
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS expenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                amount REAL NOT NULL,
+                item TEXT,
+                date TEXT DEFAULT CURRENT_DATE
+            )
+        ''')
+        conn.commit() # 提交更改
+        conn.close() # 關閉連接
+        print("SQLite 資料庫初始化成功。")
+    except Exception as e:
+        print(f"SQLite 資料庫初始化失敗: {e}")
+        traceback.print_exc()
+
+# === 主要的 AI 回覆邏輯函數 ===
 def get_ai_response(user_message):
-    """根據用戶訊息生成 AI 回覆 (使用 Gemini API)"""
+    """根據用戶訊息生成 AI 回覆 (嘗試記帳，否則呼叫 Gemini)"""
     if not user_message or user_message.strip() == "":
         return "您好！請輸入一些內容，我才能為您服務喔。"
 
+    # 1. 嘗試記帳邏輯
+    # 使用正則表達式匹配「花了數字元買東西」或「數字元買東西」
+    # re.I 讓匹配不區分大小寫
+    match_expense = re.search(r'(?:花了|消費|支出|買了|購買)(\d+(?:\.\d+)?)元(.+)', user_message, re.I)
+    
+    if match_expense:
+        try:
+            amount = float(match_expense.group(1)) # 提取金額
+            item = match_expense.group(2).strip() # 提取項目
+            
+            conn = sqlite3.connect('expenses.db')
+            cursor = conn.cursor()
+            # 插入數據到 expenses 表中
+            cursor.execute("INSERT INTO expenses (amount, item) VALUES (?, ?)", (amount, item))
+            conn.commit()
+            conn.close()
+            return f"好的，已為您記錄 {amount} 元購買 {item} 的支出。"
+        except ValueError:
+            # 如果金額不是有效的數字
+            return "對不起，我無法識別您輸入的金額，請確保是有效的數字。"
+        except Exception as e:
+            print(f"記帳數據庫操作失敗: {e}")
+            traceback.print_exc()
+            # 如果數據庫操作失敗，回退到 AI 回覆
+            pass # 繼續執行下面的 Gemini 邏輯
+    
+    # 2. 如果不是記帳訊息，或者記帳失敗，則呼叫 Gemini
     try:
         response = model.generate_content(user_message)
         return response.text 
@@ -45,6 +97,7 @@ def get_ai_response(user_message):
         traceback.print_exc() 
         return "對不起，目前AI服務無法回應您的請求，請稍後再試。"
 
+# === Line Bot 的 Webhook 處理部分 (保持不變) ===
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -60,14 +113,14 @@ def callback():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_message = event.message.text
-    
     ai_response = get_ai_response(user_message)
-
     line_bot_api.reply_message(
         event.reply_token,
         TextSendMessage(text=ai_response)
     )
 
+# === 應用程式啟動入口 (新增資料庫初始化) ===
 if __name__ == "__main__":
+    init_db() # 在應用程式啟動時呼叫資料庫初始化
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
